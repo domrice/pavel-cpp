@@ -35,19 +35,47 @@ int main(int argc, char** argv)
     const auto seeds_opt =
         app.add_option("--seeds", seeds_path,
                        "Seeds, one per line: x y z nx ny nz angle(degrees) element(index into --elements) scale; "
-                       "without it, the first element is seeded isotropically")
+                       "without it (and --stripes), the elements are seeded isotropically")
             ->check(CLI::ExistingFile);
-    app.add_option("--coverage", iso.coverage, "Isotropic seeding: footprint area of all placed elements / base area")
+    std::vector<double> stripes;
+    const auto stripes_opt =
+        app.add_option("--stripes", stripes,
+                       "Stripe seeding: distance between main stripes, seed spacing along them, crossing angle "
+                       "(degrees)")
+            ->expected(3)
+            ->check(CLI::PositiveNumber)
+            ->excludes(seeds_opt);
+    const auto iso_group = app.add_option_group("Isotropic seeding");
+    iso_group->excludes(seeds_opt);
+    iso_group->excludes(stripes_opt);
+    bool offset = false;
+    iso_group->add_flag("--offset", offset, "Seed on the offset surface at the footprint's height");
+    iso_group->add_option("--coverage", iso.coverage, "Footprint area of all placed elements / base area")
         ->check(CLI::PositiveNumber)
-        ->excludes(seeds_opt)
         ->capture_default_str();
-    app.add_option("--lloyd", iso.lloyd, "Isotropic seeding: CVT Lloyd iterations")
+    iso_group->add_option("--lloyd", iso.lloyd, "CVT Lloyd iterations")
         ->check(CLI::NonNegativeNumber)
-        ->excludes(seeds_opt)
         ->capture_default_str();
-    app.add_option("--newton", iso.newton, "Isotropic seeding: CVT Newton iterations")
+    iso_group->add_option("--newton", iso.newton, "CVT Newton iterations")
         ->check(CLI::NonNegativeNumber)
-        ->excludes(seeds_opt)
+        ->capture_default_str();
+    const auto perturb_group = app.add_option_group("Perturbation");
+    perturb_group->excludes(seeds_opt);
+    pavel::PerturbParams pp;
+    const std::map<std::string, pavel::Variation> variation{
+        {"none", pavel::Variation::none}, {"random", pavel::Variation::random}, {"alternate", pavel::Variation::alternate}};
+    perturb_group->add_option("--rotation", pp.rotation,
+                   "Turn about the normal: none, random, or alternate (180° every other seed along the main stripe, "
+                   "--stripes only); default none")
+        ->transform(CLI::CheckedTransformer(variation));
+    perturb_group->add_option("--element-choice", pp.element,
+                   "Element among --elements: none (the first), random, or alternate (along the main stripe, "
+                   "--stripes only); default random")
+        ->transform(CLI::CheckedTransformer(variation));
+    perturb_group->add_option("--scale-jitter", pp.scale_jitter, "Uniform scale factor in 1 ± this")
+        ->check(CLI::Range(0.0, 0.1))
+        ->capture_default_str();
+    perturb_group->add_option("--random-seed", pp.random_seed, "Seed of the perturbations' random numbers")
         ->capture_default_str();
     app.add_option("--voxel-size", h, "Voxel edge length")->required()->check(CLI::PositiveNumber);
     app.add_option("-a", p.a, "Recovery function: peak at a·d")->capture_default_str();
@@ -59,6 +87,8 @@ int main(int argc, char** argv)
         ->capture_default_str();
     app.add_option("-o,--output", out, "Output directory")->capture_default_str();
     CLI11_PARSE(app, argc, argv);
+    if (stripes.empty() && (pp.rotation == pavel::Variation::alternate || pp.element == pavel::Variation::alternate))
+        return app.exit(CLI::ValidationError("alternate", "needs --stripes"));
 
     Eigen::MatrixXd BV;
     Eigen::MatrixXi BF;
@@ -67,11 +97,27 @@ int main(int argc, char** argv)
     std::vector<Eigen::MatrixXi> EF(element_paths.size());
     for (size_t k = 0; k < element_paths.size(); ++k) read_mesh(element_paths[k], EV[k], EF[k]);
 
-    std::ifstream in(seeds_path);
-    const auto seeds = seeds_path.empty()
-                           ? pavel::isotropic_seeds(BV, BF, pavel::footprint_area(EV[0], EF[0], h), iso)
-                           : pavel::read_seeds(in);
+    std::vector<pavel::Seed> seeds;
+    std::vector<int> parity;
+    if (!seeds_path.empty()) {
+        std::ifstream in(seeds_path);
+        seeds = pavel::read_seeds(in);
+    } else {
+        if (!stripes.empty()) {
+            seeds = pavel::stripe_seeds(BV, BF, stripes[0], stripes[1], stripes[2], parity);
+        } else {
+            const auto fp = pavel::footprint(EV, EF, h);
+            Eigen::MatrixXd SV = BV;
+            Eigen::MatrixXi SF = BF;
+            if (offset) pavel::offset_surface(BV, BF, fp.height, h, SV, SF);
+            seeds = pavel::isotropic_seeds(BV, BF, SV, SF, fp.area, iso);
+        }
+        pavel::perturb(seeds, parity, int(EV.size()), pp);
+    }
     std::cout << seeds.size() << " seeds\n";
+    std::filesystem::create_directories(out);
+    std::ofstream seeds_out(out / "seeds.txt");
+    pavel::write_seeds(seeds_out, seeds);
 
     // ponytail: the base's winding-number tree is rebuilt per element; precompute it once if that shows up in a
     // profile.
@@ -96,7 +142,6 @@ int main(int argc, char** argv)
     Eigen::MatrixXd VC;
     Eigen::MatrixXi FC;
     igl::combine(V, F, VC, FC);
-    std::filesystem::create_directories(out);
     igl::write_triangle_mesh((out / "elements.obj").string(), VC, FC);
 
     pavel::remesh({VC, BV}, {FC, BF}, remesh_points, VC, FC);

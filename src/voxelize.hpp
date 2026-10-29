@@ -16,14 +16,20 @@ inline Eigen::AlignedBox3d element_box(const Eigen::MatrixXd& V)
     return {b.center() - 0.75 * b.sizes(), b.center() + 0.75 * b.sizes()};
 }
 
-// Voxelizes a closed mesh on the lattice of voxel size h, over the voxels needed to cover box
-// (rounded outward to whole voxels). A voxel is inside when the fast winding number at its
-// center exceeds 1/2.
-inline VoxelGrid voxelize(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, double h, const Eigen::AlignedBox3d& box)
+// The voxels of the lattice of voxel size h needed to cover box (rounded outward to whole
+// voxels), all outside.
+inline VoxelGrid lattice_grid(double h, const Eigen::AlignedBox3d& box)
 {
     const Eigen::Vector3i lo = (box.min() / h).array().floor().cast<int>().matrix();
-    const Eigen::Vector3i hi = (box.max() / h).array().ceil().cast<int>().matrix();
-    VoxelGrid g{h, lo, hi - lo + Eigen::Vector3i::Ones(), {}};
+    const Eigen::Vector3i size = (box.max() / h).array().ceil().cast<int>().matrix() - lo + Eigen::Vector3i::Ones();
+    return {h, lo, size, Mask::Zero(size.prod())};
+}
+
+// Voxelizes a closed mesh over lattice_grid(h, box). A voxel is inside when the fast winding
+// number at its center exceeds 1/2.
+inline VoxelGrid voxelize(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, double h, const Eigen::AlignedBox3d& box)
+{
+    VoxelGrid g = lattice_grid(h, box);
     Eigen::VectorXd W;
     igl::fast_winding_number(V, F, g.centers(), W);
     g.inside = W.array() > 0.5;

@@ -9,7 +9,8 @@ FetchContent_Declare(libigl
 FetchContent_Declare(geometry-central
     GIT_REPOSITORY https://github.com/nmwsharp/geometry-central.git
     GIT_TAG v1.1.0
-    GIT_SHALLOW TRUE)
+    GIT_SHALLOW TRUE
+    SYSTEM) # its headers trip our -Wextra
 
 # Release tarball instead of git: it already contains Geogram's submodules.
 FetchContent_Declare(geogram
