@@ -1,4 +1,5 @@
 #include "deform.hpp"
+#include "output.hpp"
 #include "seeding.hpp"
 #include "voxelize.hpp"
 
@@ -52,6 +53,10 @@ int main(int argc, char** argv)
     app.add_option("-a", p.a, "Recovery function: peak at a·d")->capture_default_str();
     app.add_option("-b", p.b, "Recovery function: zero beyond b·d")->capture_default_str();
     app.add_option("--order", p.order, "Fast marching order")->check(CLI::Range(1, 2))->capture_default_str();
+    unsigned remesh_points = 0;
+    app.add_option("--remesh-points", remesh_points,
+                   "CVT remesh of elements + base: number of points; 0 keeps the merged mesh's vertex count")
+        ->capture_default_str();
     app.add_option("-o,--output", out, "Output directory")->capture_default_str();
     CLI11_PARSE(app, argc, argv);
 
@@ -93,4 +98,7 @@ int main(int argc, char** argv)
     igl::combine(V, F, VC, FC);
     std::filesystem::create_directories(out);
     igl::write_triangle_mesh((out / "elements.obj").string(), VC, FC);
+
+    pavel::remesh({VC, BV}, {FC, BF}, remesh_points, VC, FC);
+    igl::write_triangle_mesh((out / "remeshed.obj").string(), VC, FC);
 }
