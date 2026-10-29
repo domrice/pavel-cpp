@@ -32,9 +32,9 @@ struct Overlaps {
 };
 
 // Removes element voxels inside the base, and voxels shared by several elements from all but the one with the
-// nearest center (ties go to the lower index).
+// nearest center (ties go to the lower index). base[i] is the base on element i's grid, in its storage order.
 // PAPER: §4, the element center is the centroid of its voxels.
-inline Overlaps resolve_overlaps(const std::vector<VoxelGrid>& elements, const VoxelGrid& base)
+inline Overlaps resolve_overlaps(const std::vector<VoxelGrid>& elements, const std::vector<Mask>& base)
 {
     const int n = elements.size();
     Overlaps o{elements, std::vector<std::vector<Neighbor>>(n)};
@@ -60,7 +60,7 @@ inline Overlaps resolve_overlaps(const std::vector<VoxelGrid>& elements, const V
             const Eigen::Vector3i p = g.coord(v);
             const Eigen::RowVector3d x = g.h * p.cast<double>().transpose();
             const std::pair mine{(x - center[i]).squaredNorm(), i};
-            const bool removed = base.at(p) || std::ranges::any_of(o.neighbors[i], [&](const Neighbor& nb) {
+            const bool removed = base[i][v] || std::ranges::any_of(o.neighbors[i], [&](const Neighbor& nb) {
                 return elements[nb.j].at(p) && std::pair{(x - center[nb.j]).squaredNorm(), nb.j} < mine;
             });
             if (!removed) continue;
@@ -81,12 +81,12 @@ inline bool taken(const Overlaps& o, int i, const Eigen::Vector3i& p)
 // the element (Eq. 2), in voxel units. The base and the other elements are obstacles.
 // PAPER: §4, ω_c is the voxel count i lost in its overlap with c (its scale does not matter in round-robin phase B),
 // r_c is the distance to i's voxels touching c, and the base is not a contact.
-inline Eigen::ArrayXd arrival_times(const Overlaps& o, int i, const VoxelGrid& base, double d, const DeformParams& p)
+inline Eigen::ArrayXd arrival_times(const Overlaps& o, int i, const Mask& base, double d, const DeformParams& p)
 {
     const VoxelGrid& g = o.resolved[i];
     const Eigen::Index n = g.inside.size();
     Eigen::ArrayXd F = Eigen::ArrayXd::Zero(n);
-    Mask obstacle = g.sample(base);
+    Mask obstacle = base;
     for (auto [j, lost] : o.neighbors[i]) {
         const VoxelGrid& c = o.resolved[j];
         obstacle = obstacle || g.sample(c);
@@ -117,7 +117,7 @@ inline void push_neighbors(const VoxelGrid& g, Eigen::ArrayXd& T, MinHeap& front
 // voxels, in order of its arrival times. Phase A computes all arrival times concurrently, phase B assigns voxels
 // sequentially. An element whose front runs out of reachable voxels stays short (§4: "theoretically possible").
 // PAPER: §4, phase B is round-robin (arXiv text): each element in turn claims one voxel.
-inline std::vector<VoxelGrid> deform(const std::vector<VoxelGrid>& elements, const VoxelGrid& base,
+inline std::vector<VoxelGrid> deform(const std::vector<VoxelGrid>& elements, const std::vector<Mask>& base,
                                      const DeformParams& p = {})
 {
     Overlaps o = resolve_overlaps(elements, base);
@@ -128,7 +128,8 @@ inline std::vector<VoxelGrid> deform(const std::vector<VoxelGrid>& elements, con
     std::vector<std::thread> workers(std::max(1u, std::thread::hardware_concurrency()));
     for (auto& w : workers)
         w = std::thread([&] {
-            for (int i; (i = next++) < n;) T[i] = arrival_times(o, i, base, std::cbrt(elements[i].inside.count()), p);
+            for (int i; (i = next++) < n;)
+                T[i] = arrival_times(o, i, base[i], std::cbrt(elements[i].inside.count()), p);
         });
     for (auto& w : workers) w.join();
 

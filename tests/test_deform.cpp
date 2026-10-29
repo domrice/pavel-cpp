@@ -23,7 +23,8 @@ VoxelGrid ball(const Eigen::Vector3d& c, double r)
 
 // Two unit balls overlapping each other and sunk 0.1 into the base half-space z <= 0, as in Fig. 5.
 const std::vector<VoxelGrid> elements{ball({-0.8, 0, 0.9}, 1), ball({0.8, 0, 0.9}, 1)};
-const VoxelGrid base{h, {-50, -50, -20}, {100, 100, 21}, pavel::Mask::Constant(100 * 100 * 21, true)};
+const VoxelGrid plane{h, {-50, -50, -20}, {100, 100, 21}, pavel::Mask::Constant(100 * 100 * 21, true)};
+const std::vector base{elements[0].sample(plane), elements[1].sample(plane)};
 
 TEST_CASE("overlap resolution leaves no voxel shared", "[deform]")
 {
@@ -44,7 +45,7 @@ TEST_CASE("deformation recovers the exact volume without sharing voxels", "[defo
         int shared = 0;
         for (Eigen::Index v = 0; v < deformed[i].inside.size(); ++v)
             if (deformed[i].inside[v])
-                shared += base.at(deformed[i].coord(v)) || deformed[1 - i].at(deformed[i].coord(v));
+                shared += base[i][v] || deformed[1 - i].at(deformed[i].coord(v));
         CHECK(shared == 0);
     }
 }
