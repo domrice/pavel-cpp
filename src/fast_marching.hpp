@@ -11,25 +11,26 @@
 
 namespace pavel {
 
+using MinHeap = std::priority_queue<std::pair<double, Eigen::Index>, std::vector<std::pair<double, Eigen::Index>>,
+                                    std::greater<>>;
+
 namespace detail {
 
 // Port of scikit-fmm's travel-time marcher (v2025.6.23: base_marcher.cpp, distance_marcher.cpp,
 // travel_time_marcher.cpp) for a binary phi (element = -1, rest = +1) and dx = 1.
 struct Marcher {
     enum Flag : char { Far, Narrow, Frozen, Blocked };
-    using Entry = std::pair<double, Eigen::Index>;
 
     Eigen::Vector3i size;
-    const Eigen::Array<bool, Eigen::Dynamic, 1>& inside;
+    const Mask& inside;
     const Eigen::ArrayXd& speed;
     int order;
     std::vector<Flag> flag;
     Eigen::ArrayXd T;
     // ponytail: lazy deletion (stale entries are skipped) instead of skfmm's decrease-key heap.
-    std::priority_queue<Entry, std::vector<Entry>, std::greater<>> heap{};
+    MinHeap heap{};
 
-    Marcher(const VoxelGrid& element, const Eigen::ArrayXd& speed,
-            const Eigen::Array<bool, Eigen::Dynamic, 1>& obstacle, int order)
+    Marcher(const VoxelGrid& element, const Eigen::ArrayXd& speed, const Mask& obstacle, int order)
         : size(element.size), inside(element.inside), speed(speed), order(order), flag(size.prod(), Far),
           T(Eigen::ArrayXd::Constant(size.prod(), std::numeric_limits<double>::infinity()))
     {
@@ -148,8 +149,8 @@ struct Marcher {
 // between voxels: a voxel with element neighbors along n axes starts at 0.5 / (√n F).
 // Only the outside is marched; T is +inf inside the element and where the front never arrives.
 // PAPER: §4/Eq. 2 is first order; scikit-fmm defaults to second order, so `order` switches.
-inline Eigen::ArrayXd fast_marching(const VoxelGrid& element, const Eigen::ArrayXd& speed,
-                                    const Eigen::Array<bool, Eigen::Dynamic, 1>& obstacle, int order = 1)
+inline Eigen::ArrayXd fast_marching(const VoxelGrid& element, const Eigen::ArrayXd& speed, const Mask& obstacle,
+                                    int order = 1)
 {
     detail::Marcher m(element, speed, obstacle, order);
     m.expand(m.freeze_boundary());
