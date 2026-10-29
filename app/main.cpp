@@ -24,16 +24,30 @@ int main(int argc, char** argv)
     std::string base_path, seeds_path;
     std::vector<std::string> element_paths;
     double h;
+    pavel::IsotropicParams iso;
     pavel::DeformParams p;
     std::filesystem::path out = "out";
     app.add_option("--base", base_path, "Base mesh")->required()->check(CLI::ExistingFile);
     app.add_option("--elements", element_paths, "Element meshes: +z is the symmetry axis, z = 0 the footprint plane")
         ->required()
         ->check(CLI::ExistingFile);
-    app.add_option("--seeds", seeds_path,
-                   "Seeds, one per line: x y z nx ny nz angle(degrees) element(index into --elements) scale")
-        ->required()
-        ->check(CLI::ExistingFile);
+    const auto seeds_opt =
+        app.add_option("--seeds", seeds_path,
+                       "Seeds, one per line: x y z nx ny nz angle(degrees) element(index into --elements) scale; "
+                       "without it, the first element is seeded isotropically")
+            ->check(CLI::ExistingFile);
+    app.add_option("--coverage", iso.coverage, "Isotropic seeding: footprint area of all placed elements / base area")
+        ->check(CLI::PositiveNumber)
+        ->excludes(seeds_opt)
+        ->capture_default_str();
+    app.add_option("--lloyd", iso.lloyd, "Isotropic seeding: CVT Lloyd iterations")
+        ->check(CLI::NonNegativeNumber)
+        ->excludes(seeds_opt)
+        ->capture_default_str();
+    app.add_option("--newton", iso.newton, "Isotropic seeding: CVT Newton iterations")
+        ->check(CLI::NonNegativeNumber)
+        ->excludes(seeds_opt)
+        ->capture_default_str();
     app.add_option("--voxel-size", h, "Voxel edge length")->required()->check(CLI::PositiveNumber);
     app.add_option("-a", p.a, "Recovery function: peak at a·d")->capture_default_str();
     app.add_option("-b", p.b, "Recovery function: zero beyond b·d")->capture_default_str();
@@ -48,12 +62,17 @@ int main(int argc, char** argv)
     std::vector<Eigen::MatrixXi> EF(element_paths.size());
     for (size_t k = 0; k < element_paths.size(); ++k) read_mesh(element_paths[k], EV[k], EF[k]);
 
+    std::ifstream in(seeds_path);
+    const auto seeds = seeds_path.empty()
+                           ? pavel::isotropic_seeds(BV, BF, pavel::footprint_area(EV[0], EF[0], h), iso)
+                           : pavel::read_seeds(in);
+    std::cout << seeds.size() << " seeds\n";
+
     // ponytail: the base's winding-number tree is rebuilt per element; precompute it once if that shows up in a
     // profile.
     std::vector<pavel::VoxelGrid> elements;
     std::vector<pavel::Mask> base;
-    std::ifstream in(seeds_path);
-    for (const auto& s : pavel::read_seeds(in)) {
+    for (const auto& s : seeds) {
         const Eigen::MatrixXd V = pavel::place(EV.at(s.element), s);
         const auto box = pavel::element_box(V);
         elements.push_back(pavel::voxelize(V, EF.at(s.element), h, box));
