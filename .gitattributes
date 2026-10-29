@@ -1,0 +1,12 @@
+# Normalize text to LF; git auto-detects binaries
+* text=auto eol=lf
+
+*.cpp diff=cpp
+*.hpp diff=cpp
+*.py  diff=python
+*.md  diff=markdown
+
+# Not worth diffing
+*.lock -diff linguist-generated
+*.obj  -diff
+*.ply  -diff
