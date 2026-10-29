@@ -1,0 +1,5 @@
+add_library(pavel_core INTERFACE)
+add_library(pavel::core ALIAS pavel_core)
+target_include_directories(pavel_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(pavel_core INTERFACE igl::core geometry-central geogram)
+target_compile_options(pavel_core INTERFACE -Wall -Wextra -Wpedantic)
