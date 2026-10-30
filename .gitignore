@@ -3,3 +3,4 @@ out/
 .cache/
 .DS_Store
 imgui.ini
+.polyscope.ini

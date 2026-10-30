@@ -55,6 +55,5 @@ tests/      Catch2 tests, one file per module; scikit-fmm reference data in test
 tools/      uv single-file scripts (PEP 723 + lock file)
 assets/     test meshes: two bases and an element
 cmake/      pinned third-party dependencies
-docs/       the paper (TOG text, arXiv TeX) and the roadmap
 out/        run outputs
 ```

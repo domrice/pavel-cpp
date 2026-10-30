@@ -4,7 +4,7 @@ namespace pavel {
 
 // Volume recovery function f_{a,b} (§4, Eq. 1). Maps the distance from a contact surface,
 // normalized by the cube root of the element volume, to a front speed.
-// The printed Eq. 1 is not C1. This version matches the paper's plot (docs/arxiv/function.png):
+// The printed Eq. 1 is not C1. This version matches the paper's plot of it:
 // f(0) = 0, f(a) = 1, f((a+b)/2) = 1/2, f(b) = 0, with three quadratics joined C1 at a, (a+b)/2, b.
 constexpr double recovery_function(double x, double a, double b)
 {
