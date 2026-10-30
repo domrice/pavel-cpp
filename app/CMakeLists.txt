@@ -1,2 +1,6 @@
 add_executable(pavel main.cpp)
 target_link_libraries(pavel PRIVATE pavel::core CLI11::CLI11)
+if(PAVEL_VIEWER)
+    target_link_libraries(pavel PRIVATE polyscope)
+    target_compile_definitions(pavel PRIVATE PAVEL_VIEWER)
+endif()

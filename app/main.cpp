@@ -1,7 +1,9 @@
 #include "deform.hpp"
 #include "output.hpp"
 #include "seeding.hpp"
-#include "voxelize.hpp"
+#ifdef PAVEL_VIEWER
+#include "viewer.hpp"
+#endif
 
 #include <CLI/CLI.hpp>
 #include <igl/combine.h>
@@ -85,6 +87,14 @@ int main(int argc, char** argv)
     app.add_option("--remesh-points", remesh_points,
                    "CVT remesh of elements + base: number of points; 0 keeps the merged mesh's vertex count")
         ->capture_default_str();
+    bool shells = false;
+    app.add_flag("--shells", shells,
+                 "Also write printable shells: the elements on each quadrant of the base about its z axis, remeshed");
+#ifdef PAVEL_VIEWER
+    bool place = false;
+    app.add_flag("--place", place,
+                 "Edit the seeds in a viewer before the pipeline runs (an empty --seeds file starts from none)");
+#endif
     app.add_option("-o,--output", out, "Output directory")->capture_default_str();
     CLI11_PARSE(app, argc, argv);
     if (stripes.empty() && (pp.rotation == pavel::Variation::alternate || pp.element == pavel::Variation::alternate))
@@ -114,31 +124,17 @@ int main(int argc, char** argv)
         }
         pavel::perturb(seeds, parity, int(EV.size()), pp);
     }
+#ifdef PAVEL_VIEWER
+    if (place) edit_seeds(BV, BF, EV, EF, h, p, seeds);
+#endif
     std::cout << seeds.size() << " seeds\n";
     std::filesystem::create_directories(out);
     std::ofstream seeds_out(out / "seeds.txt");
     pavel::write_seeds(seeds_out, seeds);
 
-    // ponytail: the base's winding-number tree is rebuilt per element; precompute it once if that shows up in a
-    // profile.
-    std::vector<pavel::VoxelGrid> elements;
-    std::vector<pavel::Mask> base;
-    for (const auto& s : seeds) {
-        const Eigen::MatrixXd V = pavel::place(EV.at(s.element), s);
-        const auto box = pavel::element_box(V);
-        elements.push_back(pavel::voxelize(V, EF.at(s.element), h, box));
-        base.push_back(pavel::voxelize(BV, BF, h, box).inside);
-    }
-    const auto deformed = pavel::deform(elements, base, p);
-
-    std::vector<Eigen::MatrixXd> V(deformed.size());
-    std::vector<Eigen::MatrixXi> F(deformed.size());
-    for (size_t i = 0; i < deformed.size(); ++i) {
-        if (deformed[i].inside.count() < elements[i].inside.count())
-            std::cout << "element " << i << " recovered " << deformed[i].inside.count() << " of "
-                      << elements[i].inside.count() << " voxels\n";
-        pavel::marching_cubes(deformed[i], V[i], F[i]);
-    }
+    std::vector<Eigen::MatrixXd> V;
+    std::vector<Eigen::MatrixXi> F;
+    pavel::deformed_meshes(BV, BF, EV, EF, seeds, h, p, V, F);
     Eigen::MatrixXd VC;
     Eigen::MatrixXi FC;
     igl::combine(V, F, VC, FC);
@@ -146,4 +142,11 @@ int main(int argc, char** argv)
 
     pavel::remesh({VC, BV}, {FC, BF}, remesh_points, VC, FC);
     igl::write_triangle_mesh((out / "remeshed.obj").string(), VC, FC);
+
+    if (!shells) return 0;
+    std::array<Eigen::MatrixXd, 4> SV;
+    std::array<Eigen::MatrixXi, 4> SF;
+    pavel::shells(BV, seeds, V, F, SV, SF);
+    for (int k = 0; k < 4; ++k)
+        if (SV[k].rows() > 0) igl::write_triangle_mesh((out / ("shell" + std::to_string(k) + ".obj")).string(), SV[k], SF[k]);
 }

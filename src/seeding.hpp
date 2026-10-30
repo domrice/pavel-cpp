@@ -114,6 +114,25 @@ inline void offset_surface(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, d
     igl::marching_cubes(S, P, g.size.x(), g.size.y(), g.size.z(), d, OV, OF);
 }
 
+// Seeds at the points P projected onto the base V, F (closest point), each with the base's vertex normals
+// interpolated there, placing element 0 unturned and unscaled.
+inline std::vector<Seed> surface_seeds(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, const Eigen::MatrixXd& P)
+{
+    Eigen::MatrixXd C, B, N;
+    Eigen::VectorXd D;
+    Eigen::VectorXi I;
+    igl::point_mesh_squared_distance(P, V, F, D, I, C);
+    using Eigen::placeholders::all;
+    igl::barycentric_coordinates(C, V(F(I, 0), all), V(F(I, 1), all), V(F(I, 2), all), B);
+    igl::per_vertex_normals(V, F, N);
+    std::vector<Seed> seeds;
+    for (Eigen::Index i = 0; i < P.rows(); ++i) {
+        const Eigen::Vector3d normal = B.row(i) * N(F.row(I[i]), all);
+        seeds.push_back({C.row(i), normal.normalized(), 0, 0, 1});
+    }
+    return seeds;
+}
+
 // PAPER: §4, coverage about 1.4 (1.2 barely deforms, 1.6 distorts). The iteration counts are GEO::remesh_smooth's.
 struct IsotropicParams {
     double coverage = 1.4;
@@ -123,8 +142,7 @@ struct IsotropicParams {
 // Isotropic seeding (§5) on the base V, F: coverage = N · footprint / base area fixes the number N of seeds, which
 // Geogram's CVT (Yan et al. 2009) spreads over the sampling surface SV, SF (the base, or its offset surface) with
 // lloyd then newton iterations; fewer give a less regular, "hand-made" look. Each seed is projected onto the base
-// (closest point, which for the offset surface is the projection along its normal), its normal interpolates the
-// base's vertex normals, and it places element 0 unturned and unscaled.
+// (surface_seeds; for the offset surface, the closest point is the projection along its normal).
 inline std::vector<Seed> isotropic_seeds(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, const Eigen::MatrixXd& SV,
                                          const Eigen::MatrixXi& SF, double footprint, const IsotropicParams& p)
 {
@@ -138,21 +156,9 @@ inline std::vector<Seed> isotropic_seeds(const Eigen::MatrixXd& V, const Eigen::
     cvt.Lloyd_iterations(p.lloyd);
     if (p.newton > 0) cvt.Newton_iterations(p.newton); // as in GEO::remesh_smooth
 
-    const Eigen::MatrixXd P = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(
-        cvt.embedding(0), n, 3);
-    Eigen::MatrixXd C, B, N;
-    Eigen::VectorXd D;
-    Eigen::VectorXi I;
-    igl::point_mesh_squared_distance(P, V, F, D, I, C);
-    using Eigen::placeholders::all;
-    igl::barycentric_coordinates(C, V(F(I, 0), all), V(F(I, 1), all), V(F(I, 2), all), B);
-    igl::per_vertex_normals(V, F, N);
-    std::vector<Seed> seeds;
-    for (GEO::index_t i = 0; i < n; ++i) {
-        const Eigen::Vector3d normal = B.row(i) * N(F.row(I[i]), all);
-        seeds.push_back({C.row(i), normal.normalized(), 0, 0, 1});
-    }
-    return seeds;
+    return surface_seeds(V, F,
+                         Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(
+                             cvt.embedding(0), n, 3));
 }
 
 // PAPER: §5, the stripe seeds' connectivity is "estimated": seed j neighbours seed i along a stripe family when it lies

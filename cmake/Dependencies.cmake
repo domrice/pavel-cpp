@@ -31,3 +31,13 @@ FetchContent_Declare(Catch2
     GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(libigl geometry-central geogram CLI11 Catch2)
+
+option(PAVEL_VIEWER "Build the polyscope viewer for manual placement (pavel --place)" OFF)
+if(PAVEL_VIEWER)
+    FetchContent_Declare(polyscope
+        GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
+        GIT_TAG v2.6.1
+        GIT_SHALLOW TRUE
+        SYSTEM)
+    FetchContent_MakeAvailable(polyscope)
+endif()
