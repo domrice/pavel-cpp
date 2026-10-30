@@ -5,55 +5,90 @@
 [![CMake 3.25+](https://img.shields.io/badge/CMake-3.25%2B-064f8c?logo=cmake&logoColor=white)](https://cmake.org/)
 [![Paper-DOI](https://img.shields.io/badge/paper-10.1145%2F3502802-215CAF)](https://doi.org/10.1145/3502802)
 
-A C++20 reimplementation of PAVEL (Fanni, Pellacini, Scateni, Giachetti, ACM TOG 41(2), 2022). It places volumetric decorative elements on a base mesh and deforms them, preserving their volume, until they pack against each other like clay. Output is a smooth mesh or a set of printable shells. The authors' code is not public, so this one follows the paper as literally as possible. Ambiguous aspects of the paper are interpreted.
+A C++20 reimplementation of **PAVEL: Decorative Patterns with Packed Volumetric Elements** by Fanni et al. It places volumetric elements on a base mesh and deforms them, preserving their volume, until they pack against each other like clay. The authors' code is not public, so this one follows the paper as literally as possible; where the paper is ambiguous, [AGENTS.md](AGENTS.md) lists the interpretation taken.
 
-## Quick start
+## Build
 
-Needs CMake ≥ 3.25, Ninja, a C++20 compiler, and git. The first configure fetches libigl + Eigen, geometry-central, Geogram, CLI11 and Catch2, and polyscope too when the viewer is on. Nothing is installed system-wide. Needs [uv](https://docs.astral.sh/uv/getting-started/installation/) only to regenerate the test fixtures.
+Needs CMake ≥ 3.25, Ninja, a C++20 compiler and git. The first configure fetches all dependencies into `build/`; nothing is installed system-wide.
 
 ```bash
-cmake --preset release                       # add -DPAVEL_VIEWER=ON for the placement viewer
-cmake --build --preset release
-ctest --preset release
-
-pavel=./build/release/app/pavel
-m=assets/meshes
-$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005                    # isotropic seeding, coverage 1.4
-$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005 --offset --shells  # offset-surface seeding, printable shells
-$pavel --base base.obj --elements a.obj b.obj --voxel-size 0.05 \
-       --stripes 1.5 1.5 90 --rotation alternate --element-choice alternate                  # stripe seeding
+cmake --preset release            # configure, download and build the dependencies (first run only)
+cmake --build --preset release    # build the pavel CLI and the tests
+ctest --preset release            # run the tests (optional)
 ```
 
-`assets/meshes` holds two test bases, `hemisphere.obj` and `saddle.obj` (radius 1, +z up), and one element, `ball.obj` (radius 0.1, sunk 0.01 below z = 0). Both bases are open surfaces. The inside test still clips the elements against them, but the pipeline is meant for closed bases. Model each element in its own frame: +z is its symmetry axis, and z = 0 is the footprint plane that sits on the base. Whatever lies below z = 0 ends up inside the base and is lost for good. A seeds file has one line per element, `x y z nx ny nz angle element scale`. `--voxel-size` sets the resolution: the paper's per-element grids have diagonals of roughly 120–200 voxels. For shells, orient the base so that its symmetry axis is +z. `$pavel --help` lists every option. Options can also come from a TOML/INI file passed with `--config`.
+Add `-DPAVEL_VIEWER=ON` to the first line for manual placement (`--place`).
 
-Results go to `out/` (`-o` to change it): `seeds.txt` (the seeds used, in the `--seeds` format), `elements.obj` (the deformed elements), `remeshed.obj` (elements + base, CVT-remeshed), and with `--shells` also `shell0..3.obj`.
+## Run on your own meshes
+
+```bash
+pavel=./build/release/app/pavel
+$pavel --base base.obj --elements a.obj b.obj --voxel-size 0.01
+```
+
+Inputs:
+
+- `--base`: a closed triangle mesh (OBJ, OFF, STL or PLY). For `--shells`, orient its symmetry axis along +z.
+- `--elements`: one mesh per element, in the base's units, with +z as its symmetry axis and z = 0 as the plane that sits on the base. Anything below z = 0 is lost inside the base.
+- `--voxel-size`: in mesh units. Each element's grid is 1.5× its bounding box; aim for a grid diagonal of 120–200 voxels, as in the paper. Start coarse.
+
+Seeding, one of:
+
+- default: isotropic, `--coverage` sets the density (footprint area of all elements / base area, default 1.4), `--offset` seeds on the offset surface.
+- `--stripes D L α`: stripes D apart, seeds L apart along them, crossing angle α in degrees.
+- `--seeds f.txt`: one line per element, `x y z nx ny nz angle element scale` (angle in degrees about the normal, element as an index into `--elements`). Used as is, without perturbation.
+
+Perturbation, for isotropic and stripe seeds:
+
+- `--rotation`: turn about the normal, `none` (default), `random`, or `alternate` (180° every other seed, `--stripes` only).
+- `--element-choice`: which of `--elements`, `none` (the first), `random` (default), or `alternate` (`--stripes` only).
+- `--scale-jitter`: uniform scale factor in 1 ± this, from 0 (default) to 0.1.
+- `--random-seed`: seed of the random numbers.
+
+Outputs, in `out/` (`-o` to change it):
+
+- `seeds.txt`: the seeds used, reusable with `--seeds`.
+- `elements.obj`: the deformed elements.
+- `remeshed.obj`: elements + base, CVT-remeshed.
+- `shell0..3.obj`: printable quadrants, with `--shells`.
+
+`$pavel --help` lists every option; `--config f.toml` reads them from a file.
+
+Examples on the bundled meshes (`assets/meshes`: open bases `hemisphere.obj`, `saddle.obj` of radius 1; element `ball.obj` of radius 0.1):
+
+```bash
+m=assets/meshes
+$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005
+$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005 --offset --shells
+$pavel --base $m/saddle.obj --elements $m/ball.obj --voxel-size 0.005 --stripes 0.2 0.2 90 --rotation alternate
+```
 
 ## Placing seeds by hand
 
-Configure with `-DPAVEL_VIEWER=ON`, build, and add `--place`. An empty seeds file starts from scratch. Without `--seeds`, the window opens on the automatic seeds (isotropic or `--stripes`).
+Build with `-DPAVEL_VIEWER=ON` and add `--place`. Without `--seeds` the window opens on the automatic seeds; an empty seeds file starts from none.
 
 ```bash
 touch empty.txt
 $pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005 --seeds empty.txt --place
 ```
 
-In the polyscope window, drag to rotate, right-drag to pan, and scroll to zoom. A click on the base adds a seed there, carrying the previous seed's element, angle and scale. The panel edits only the newest seed: `element` (index into `--elements`), `angle` (degrees about the normal) and `scale`. Undo removes the newest seed. Deform previews the deformed elements on the current seeds, and the window freezes until it is done. Any edit after that drops the preview. Closing the window runs the full pipeline on the edited seeds and writes them to `out/seeds.txt`. To continue editing later, pass that file back with `--seeds`.
+Click the base to add a seed (it copies the previous seed's element, angle and scale). The panel edits the newest seed; Undo removes it; Deform previews the result. Closing the window runs the full pipeline and writes `out/seeds.txt`, which you can pass back with `--seeds` to keep editing.
 
-Test fixtures:
+## Citation
 
-```bash
-uv run tools/fmm_reference.py   # scikit-fmm arrival times → tests/data/fmm
-```
-
-## Layout
+I did not contribute to this paper, but please cite the authors' work when you use this code.
 
 ```
-src/        header-only library pavel::core, one header per pipeline stage: seeding, voxel_grid,
-            voxelize, fast_marching, recovery_function, deform, output, mesh_convert
-app/        CLI `pavel` (main.cpp), polyscope placement viewer (viewer.hpp)
-tests/      Catch2 tests, one file per module; scikit-fmm reference data in tests/data/
-tools/      uv single-file scripts (PEP 723 + lock file)
-assets/     test meshes: two bases and an element
-cmake/      pinned third-party dependencies
-out/        run outputs
+@article{fanniPAVELDecorativePatterns2022,
+  title = {{{PAVEL}}: {{Decorative Patterns}} with {{Packed Volumetric Elements}}},
+  author = {Fanni, Filippo Andrea and Pellacini, Fabio and Scateni, Riccardo and Giachetti, Andrea},
+  year = 2022,
+  month = apr,
+  journal = {ACM Transactions on Graphics},
+  volume = {41},
+  number = {2},
+  pages = {1--15},
+  publisher = {Association for Computing Machinery (ACM)},
+  doi = {10.1145/3502802}
+}
 ```
