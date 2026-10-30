@@ -17,16 +17,27 @@ cmake --build --preset release
 ctest --preset release
 
 pavel=./build/release/app/pavel
-$pavel --base base.obj --elements ball.obj --voxel-size 0.05                         # isotropic seeding, coverage 1.4
-$pavel --base base.obj --elements ball.obj --voxel-size 0.05 --offset --shells       # offset-surface seeding, printable shells
+m=assets/meshes
+$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005                    # isotropic seeding, coverage 1.4
+$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005 --offset --shells  # offset-surface seeding, printable shells
 $pavel --base base.obj --elements a.obj b.obj --voxel-size 0.05 \
-       --stripes 1.5 1.5 90 --rotation alternate --element-choice alternate          # stripe seeding
-$pavel --base base.obj --elements ball.obj --voxel-size 0.05 --seeds seeds.txt --place   # edit seeds in the viewer
+       --stripes 1.5 1.5 90 --rotation alternate --element-choice alternate                  # stripe seeding
 ```
 
-No meshes ship with the repo. Model each element in its own frame: +z is its symmetry axis, and z = 0 is the footprint plane that sits on the base. A seeds file has one line per element, `x y z nx ny nz angle element scale`. `--voxel-size` sets the resolution: the paper's per-element grids have diagonals of roughly 120–200 voxels. For shells, orient the base so that its symmetry axis is +z. `$pavel --help` lists every option. Options can also come from a TOML/INI file passed with `--config`.
+`assets/meshes` holds two test bases, `hemisphere.obj` and `saddle.obj` (radius 1, +z up), and one element, `ball.obj` (radius 0.1, sunk 0.01 below z = 0). Both bases are open surfaces. The inside test still clips the elements against them, but the pipeline is meant for closed bases. Model each element in its own frame: +z is its symmetry axis, and z = 0 is the footprint plane that sits on the base. Whatever lies below z = 0 ends up inside the base and is lost for good. A seeds file has one line per element, `x y z nx ny nz angle element scale`. `--voxel-size` sets the resolution: the paper's per-element grids have diagonals of roughly 120–200 voxels. For shells, orient the base so that its symmetry axis is +z. `$pavel --help` lists every option. Options can also come from a TOML/INI file passed with `--config`.
 
 Results go to `out/` (`-o` to change it): `seeds.txt` (the seeds used, in the `--seeds` format), `elements.obj` (the deformed elements), `remeshed.obj` (elements + base, CVT-remeshed), and with `--shells` also `shell0..3.obj`.
+
+## Placing seeds by hand
+
+Configure with `-DPAVEL_VIEWER=ON`, build, and add `--place`. An empty seeds file starts from scratch. Without `--seeds`, the window opens on the automatic seeds (isotropic or `--stripes`).
+
+```bash
+touch empty.txt
+$pavel --base $m/hemisphere.obj --elements $m/ball.obj --voxel-size 0.005 --seeds empty.txt --place
+```
+
+In the polyscope window, drag to rotate, right-drag to pan, and scroll to zoom. A click on the base adds a seed there, carrying the previous seed's element, angle and scale. The panel edits only the newest seed: `element` (index into `--elements`), `angle` (degrees about the normal) and `scale`. Undo removes the newest seed. Deform previews the deformed elements on the current seeds, and the window freezes until it is done. Any edit after that drops the preview. Closing the window runs the full pipeline on the edited seeds and writes them to `out/seeds.txt`. To continue editing later, pass that file back with `--seeds`.
 
 Test fixtures:
 
@@ -42,6 +53,7 @@ src/        header-only library pavel::core, one header per pipeline stage: seed
 app/        CLI `pavel` (main.cpp), polyscope placement viewer (viewer.hpp)
 tests/      Catch2 tests, one file per module; scikit-fmm reference data in tests/data/
 tools/      uv single-file scripts (PEP 723 + lock file)
+assets/     test meshes: two bases and an element
 cmake/      pinned third-party dependencies
 docs/       the paper (TOG text, arXiv TeX) and the roadmap
 out/        run outputs
